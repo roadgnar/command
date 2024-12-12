@@ -2,20 +2,32 @@ import * as core from '@actions/core'
 import * as github from '@actions/github'
 import {context} from '@actions/github'
 import {octokitRetry} from '@octokit/plugin-retry'
-import {triggerCheck} from './functions/trigger-check'
-import {contextCheck} from './functions/context-check'
-import {reactEmote} from './functions/react-emote'
-import {parameters} from './functions/parameters'
 import {actionStatus} from './functions/action-status'
-import {prechecks} from './functions/prechecks'
-import {post} from './functions/post'
 import {COLORS} from './functions/colors'
+import {contextCheck} from './functions/context-check'
+import {parameters} from './functions/parameters'
+import {post} from './functions/post'
+import {prechecks} from './functions/prechecks'
+import {reactEmote} from './functions/react-emote'
+import {triggerCheck} from './functions/trigger-check'
 
 // :returns: 'success', 'failure', 'safe-exit' or raises an error
 export async function run() {
   try {
     // Get the inputs for the 'command' Action
-    const command = core.getInput('command', {required: true})
+    const command = core.getInput('command')
+    const commands = core.getInput('commands')
+    if (command && commands) {
+      throw new Error(
+        'You cannot provide both a single command and a list of commands'
+      )
+    } else if (!command && !commands) {
+      throw new Error(
+        'You must provide either a single command or a list of commands'
+      )
+    }
+    const trigger = command || commands
+
     const token = core.getInput('github_token', {required: true})
     const param_separator = core.getInput('param_separator')
     const reaction = core.getInput('reaction')
@@ -47,7 +59,7 @@ export async function run() {
     core.setOutput('issue_number', issue_number)
 
     // check if the comment contains the command
-    if (!(await triggerCheck(body, command))) {
+    if (!(await triggerCheck(body, trigger, param_separator))) {
       // if the comment does not contain the command, exit
       core.saveState('bypass', 'true')
       core.setOutput('triggered', 'false')

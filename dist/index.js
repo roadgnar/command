@@ -33530,6 +33530,71 @@ var core = __nccwpck_require__(7484);
 var github = __nccwpck_require__(3228);
 // EXTERNAL MODULE: ./node_modules/@octokit/plugin-retry/dist-node/index.js
 var dist_node = __nccwpck_require__(3450);
+;// CONCATENATED MODULE: ./src/functions/action-status.js
+// Default failure reaction
+const thumbsDown = '-1'
+// Default success reaction
+const rocket = 'rocket'
+// Alt success reaction
+const thumbsUp = '+1'
+
+// Helper function to add a status update for the action that is running an IssueOps command
+// It also updates the original comment with a reaction depending on the status of the operation
+// :param context: The context of the action
+// :param octokit: The octokit object
+// :param reactionId: The id of the original reaction added to our trigger comment (Integer)
+// :param message: The message to be added to the action status (String)
+// :param success: Boolean indicating whether the operation was successful (Boolean)
+// :param altSuccessReaction: Boolean indicating whether to use the alternate success reaction (Boolean)
+// :returns: Nothing
+async function actionStatus(
+  context,
+  octokit,
+  reactionId,
+  message,
+  success,
+  altSuccessReaction
+) {
+  // check if message is null or empty
+  if (!message || message.length === 0) {
+    const log_url = `${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.GITHUB_RUN_ID}`
+    message = 'Unknown error, [check logs](' + log_url + ') for more details.'
+  }
+
+  // add a comment to the issue with the message
+  await octokit.rest.issues.createComment({
+    ...context.repo,
+    issue_number: context.issue.number,
+    body: message
+  })
+
+  // Select the reaction to add to the issue_comment
+  var reaction
+  if (success) {
+    if (altSuccessReaction) {
+      reaction = thumbsUp
+    } else {
+      reaction = rocket
+    }
+  } else {
+    reaction = thumbsDown
+  }
+
+  // add a reaction to the issue_comment to indicate success or failure
+  await octokit.rest.reactions.createForIssueComment({
+    ...context.repo,
+    comment_id: context.payload.comment.id,
+    content: reaction
+  })
+
+  // remove the initial reaction on the IssueOp comment that triggered this action
+  await octokit.rest.reactions.deleteForIssueComment({
+    ...context.repo,
+    comment_id: context.payload.comment.id,
+    reaction_id: reactionId
+  })
+}
+
 ;// CONCATENATED MODULE: ./src/functions/colors.js
 const COLORS = {
   highlight: '\u001b[35m', // magenta
@@ -33538,29 +33603,6 @@ const COLORS = {
   warning: '\u001b[33m', // yellow
   error: '\u001b[31m', // red
   reset: '\u001b[0m' // reset
-}
-
-;// CONCATENATED MODULE: ./src/functions/trigger-check.js
-
-
-
-// A simple function that checks the body of the message against the trigger
-// :param body: The content body of the message being checked (String)
-// :param trigger: The "trigger" phrase which is searched for in the body of the message
-// :returns: true if a message activates the trigger, false otherwise
-async function triggerCheck(body, trigger) {
-  // Set the output of the comment body for later use with other actions
-  core.setOutput('comment_body', body)
-
-  // If the trigger is not activated, set the output to false and return with false
-  if (!body.startsWith(trigger)) {
-    core.debug(
-      `trigger ${COLORS.highlight}${trigger}${COLORS.reset} not found in the comment body`
-    )
-    return false
-  }
-
-  return true
 }
 
 ;// CONCATENATED MODULE: ./src/functions/string-to-array.js
@@ -33678,51 +33720,6 @@ async function contextCheck(context) {
   return {valid: true, context: contextType}
 }
 
-;// CONCATENATED MODULE: ./src/functions/react-emote.js
-// Fixed presets of allowed emote types as defined by GitHub
-const presets = [
-  '+1',
-  '-1',
-  'laugh',
-  'confused',
-  'heart',
-  'hooray',
-  'rocket',
-  'eyes'
-]
-
-// Helper function to add a reaction to an issue_comment
-// :param reaction: A string which determines the reaction to use (String)
-// :param context: The GitHub Actions event context
-// :param octokit: The octokit client
-// :returns: The reactRes object which contains the reaction ID among other things. Returns nil if no reaction was specified, or throws an error if it fails
-async function reactEmote(reaction, context, octokit) {
-  // Get the owner and repo from the context
-  const {owner, repo} = context.repo
-
-  // If the reaction is not specified, return
-  if (!reaction || reaction.trim() === '') {
-    return
-  }
-
-  // Find the reaction in the list of presets, otherwise throw an error
-  const preset = presets.find(preset => preset === reaction.trim())
-  if (!preset) {
-    throw new Error(`Reaction "${reaction}" is not a valid preset`)
-  }
-
-  // Add the reaction to the issue_comment
-  const reactRes = await octokit.rest.reactions.createForIssueComment({
-    owner,
-    repo,
-    comment_id: context.payload.comment.id,
-    content: preset
-  })
-
-  // Return the reactRes which contains the id for reference later
-  return reactRes
-}
-
 ;// CONCATENATED MODULE: ./src/functions/parameters.js
 
 
@@ -33752,69 +33749,99 @@ async function parameters(body, param_separator = '|') {
   return paramsTrim
 }
 
-;// CONCATENATED MODULE: ./src/functions/action-status.js
-// Default failure reaction
-const thumbsDown = '-1'
-// Default success reaction
-const rocket = 'rocket'
-// Alt success reaction
-const thumbsUp = '+1'
-
-// Helper function to add a status update for the action that is running an IssueOps command
-// It also updates the original comment with a reaction depending on the status of the operation
-// :param context: The context of the action
-// :param octokit: The octokit object
-// :param reactionId: The id of the original reaction added to our trigger comment (Integer)
-// :param message: The message to be added to the action status (String)
-// :param success: Boolean indicating whether the operation was successful (Boolean)
-// :param altSuccessReaction: Boolean indicating whether to use the alternate success reaction (Boolean)
-// :returns: Nothing
-async function actionStatus(
-  context,
-  octokit,
-  reactionId,
-  message,
-  success,
-  altSuccessReaction
-) {
-  // check if message is null or empty
-  if (!message || message.length === 0) {
-    const log_url = `${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.GITHUB_RUN_ID}`
-    message = 'Unknown error, [check logs](' + log_url + ') for more details.'
-  }
-
-  // add a comment to the issue with the message
-  await octokit.rest.issues.createComment({
+;// CONCATENATED MODULE: ./src/functions/post-reactions.js
+// Helper function for adding reactions to the issue_comment on the 'post' event
+// :param octokit: An authenticated octokit client
+// :param context: The github context
+// :param reaction: The reaction to add to the issue_comment
+// :param reaction_id: The reaction_id of the initial reaction on the issue_comment
+async function postReactions(octokit, context, reaction, reaction_id) {
+  // remove the initial reaction on the IssueOp comment that triggered this action
+  await octokit.rest.reactions.deleteForIssueComment({
     ...context.repo,
-    issue_number: context.issue.number,
-    body: message
+    comment_id: context.payload.comment.id,
+    reaction_id: parseInt(reaction_id)
   })
 
-  // Select the reaction to add to the issue_comment
-  var reaction
-  if (success) {
-    if (altSuccessReaction) {
-      reaction = thumbsUp
-    } else {
-      reaction = rocket
-    }
-  } else {
-    reaction = thumbsDown
-  }
-
+  // Update the action status to indicate the result of the action as a reaction
   // add a reaction to the issue_comment to indicate success or failure
   await octokit.rest.reactions.createForIssueComment({
     ...context.repo,
     comment_id: context.payload.comment.id,
     content: reaction
   })
+}
 
-  // remove the initial reaction on the IssueOp comment that triggered this action
-  await octokit.rest.reactions.deleteForIssueComment({
-    ...context.repo,
-    comment_id: context.payload.comment.id,
-    reaction_id: reactionId
-  })
+;// CONCATENATED MODULE: ./src/functions/post.js
+
+
+
+
+
+
+
+// Default failure reaction
+const post_thumbsDown = '-1'
+// Default success reaction
+const post_thumbsUp = '+1'
+
+async function post() {
+  try {
+    const reaction_id = core.getState('reaction_id')
+    const token = core.getState('actionsToken')
+    const bypass = core.getState('bypass')
+    const status = core.getInput('status')
+    const skip_completing = core.getBooleanInput('skip_completing')
+
+    // If bypass is set, exit the workflow
+    if (bypass === 'true') {
+      core.warning('bypass set, exiting')
+      return
+    }
+
+    // Check the context of the event to ensure it is valid, return if it is not
+    const contextCheckResults = await contextCheck(github.context)
+    if (!contextCheckResults.valid) {
+      return
+    }
+
+    // if skip_completing is set, return
+    if (skip_completing) {
+      core.info('⏩ skip_completing set, exiting')
+      return
+    }
+
+    // Create an octokit client with the retry plugin
+    const octokit = github.getOctokit(token, {
+      additionalPlugins: [dist_node.octokitRetry]
+    })
+
+    // Check the Action status
+    var success
+    if (status === 'success') {
+      success = true
+    } else {
+      success = false
+    }
+
+    // Select the reaction to add to the issue_comment
+    // If it is a success, use the user defined reaction
+    // Otherwise, add a thumbs down reaction
+    var reaction
+    if (success) {
+      reaction = core.getInput('success_reaction') || post_thumbsUp
+    } else {
+      reaction = core.getInput('failed_reaction') || post_thumbsDown
+    }
+
+    // Update the reactions on the command comment
+    await postReactions(octokit, github.context, reaction, reaction_id)
+
+    return
+  } catch (error) {
+    core.error(error.stack)
+    core.setFailed(error.message)
+  }
 }
 
 ;// CONCATENATED MODULE: ./src/functions/valid-permissions.js
@@ -34329,99 +34356,77 @@ async function prechecks(
   }
 }
 
-;// CONCATENATED MODULE: ./src/functions/post-reactions.js
-// Helper function for adding reactions to the issue_comment on the 'post' event
-// :param octokit: An authenticated octokit client
-// :param context: The github context
-// :param reaction: The reaction to add to the issue_comment
-// :param reaction_id: The reaction_id of the initial reaction on the issue_comment
-async function postReactions(octokit, context, reaction, reaction_id) {
-  // remove the initial reaction on the IssueOp comment that triggered this action
-  await octokit.rest.reactions.deleteForIssueComment({
-    ...context.repo,
+;// CONCATENATED MODULE: ./src/functions/react-emote.js
+// Fixed presets of allowed emote types as defined by GitHub
+const presets = [
+  '+1',
+  '-1',
+  'laugh',
+  'confused',
+  'heart',
+  'hooray',
+  'rocket',
+  'eyes'
+]
+
+// Helper function to add a reaction to an issue_comment
+// :param reaction: A string which determines the reaction to use (String)
+// :param context: The GitHub Actions event context
+// :param octokit: The octokit client
+// :returns: The reactRes object which contains the reaction ID among other things. Returns nil if no reaction was specified, or throws an error if it fails
+async function reactEmote(reaction, context, octokit) {
+  // Get the owner and repo from the context
+  const {owner, repo} = context.repo
+
+  // If the reaction is not specified, return
+  if (!reaction || reaction.trim() === '') {
+    return
+  }
+
+  // Find the reaction in the list of presets, otherwise throw an error
+  const preset = presets.find(preset => preset === reaction.trim())
+  if (!preset) {
+    throw new Error(`Reaction "${reaction}" is not a valid preset`)
+  }
+
+  // Add the reaction to the issue_comment
+  const reactRes = await octokit.rest.reactions.createForIssueComment({
+    owner,
+    repo,
     comment_id: context.payload.comment.id,
-    reaction_id: parseInt(reaction_id)
+    content: preset
   })
 
-  // Update the action status to indicate the result of the action as a reaction
-  // add a reaction to the issue_comment to indicate success or failure
-  await octokit.rest.reactions.createForIssueComment({
-    ...context.repo,
-    comment_id: context.payload.comment.id,
-    content: reaction
-  })
+  // Return the reactRes which contains the id for reference later
+  return reactRes
 }
 
-;// CONCATENATED MODULE: ./src/functions/post.js
+;// CONCATENATED MODULE: ./src/functions/trigger-check.js
 
 
 
+// A simple function that checks the body of the message against the trigger
+// :param body: The content body of the message being checked (String)
+// :param trigger: The "trigger" phrase which is searched for in the body of the message
+// :returns: true if a message activates the trigger, false otherwise
+async function triggerCheck(body, trigger, param_separator) {
+  // Set the output of the comment body for later use with other actions
+  core.setOutput('comment_body', body)
 
-
-
-
-// Default failure reaction
-const post_thumbsDown = '-1'
-// Default success reaction
-const post_thumbsUp = '+1'
-
-async function post() {
-  try {
-    const reaction_id = core.getState('reaction_id')
-    const token = core.getState('actionsToken')
-    const bypass = core.getState('bypass')
-    const status = core.getInput('status')
-    const skip_completing = core.getBooleanInput('skip_completing')
-
-    // If bypass is set, exit the workflow
-    if (bypass === 'true') {
-      core.warning('bypass set, exiting')
-      return
-    }
-
-    // Check the context of the event to ensure it is valid, return if it is not
-    const contextCheckResults = await contextCheck(github.context)
-    if (!contextCheckResults.valid) {
-      return
-    }
-
-    // if skip_completing is set, return
-    if (skip_completing) {
-      core.info('⏩ skip_completing set, exiting')
-      return
-    }
-
-    // Create an octokit client with the retry plugin
-    const octokit = github.getOctokit(token, {
-      additionalPlugins: [dist_node.octokitRetry]
-    })
-
-    // Check the Action status
-    var success
-    if (status === 'success') {
-      success = true
-    } else {
-      success = false
-    }
-
-    // Select the reaction to add to the issue_comment
-    // If it is a success, use the user defined reaction
-    // Otherwise, add a thumbs down reaction
-    var reaction
-    if (success) {
-      reaction = core.getInput('success_reaction') || post_thumbsUp
-    } else {
-      reaction = core.getInput('failed_reaction') || post_thumbsDown
-    }
-
-    // Update the reactions on the command comment
-    await postReactions(octokit, github.context, reaction, reaction_id)
-
-    return
-  } catch (error) {
-    core.error(error.stack)
-    core.setFailed(error.message)
+  const triggers = trigger.trim().split(/\s+/)
+  const startWord = body.split(/\s+/, 1)[0].split(param_separator, 1)[0]
+  const command = triggers.find(t => t === startWord)
+  // If the trigger is not activated, set the output to false and return with false
+  if (!command) {
+    core.debug(
+      `triggers ${COLORS.highlight}${triggers}${COLORS.reset} not found at comment body start`
+    )
+    return false
   }
+
+  core.setOutput('command', command)
+
+  return true
 }
 
 ;// CONCATENATED MODULE: ./src/main.js
@@ -34442,7 +34447,19 @@ async function post() {
 async function run() {
   try {
     // Get the inputs for the 'command' Action
-    const command = core.getInput('command', {required: true})
+    const command = core.getInput('command')
+    const commands = core.getInput('commands')
+    if (command && commands) {
+      throw new Error(
+        'You cannot provide both a single command and a list of commands'
+      )
+    } else if (!command && !commands) {
+      throw new Error(
+        'You must provide either a single command or a list of commands'
+      )
+    }
+    const trigger = command || commands
+
     const token = core.getInput('github_token', {required: true})
     const param_separator = core.getInput('param_separator')
     const reaction = core.getInput('reaction')
@@ -34474,7 +34491,7 @@ async function run() {
     core.setOutput('issue_number', issue_number)
 
     // check if the comment contains the command
-    if (!(await triggerCheck(body, command))) {
+    if (!(await triggerCheck(body, trigger, param_separator))) {
       // if the comment does not contain the command, exit
       core.saveState('bypass', 'true')
       core.setOutput('triggered', 'false')
